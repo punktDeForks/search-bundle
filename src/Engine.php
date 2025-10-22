@@ -62,6 +62,10 @@ final class Engine
         if (!array_key_exists('autoGenerateObjectIDIfNotExist', $requestOptions)) {
             $requestOptions['autoGenerateObjectIDIfNotExist'] = true;
         }
+        // Strip internal, non-Algolia request options before calling API
+        if (is_array($requestOptions) && array_key_exists('_indices', $requestOptions)) {
+            unset($requestOptions['_indices']);
+        }
         foreach ($data as $indexName => $objects) {
             $result[$indexName] = $this->client
                 ->initIndex($indexName)
@@ -105,6 +109,10 @@ final class Engine
         }
 
         $result = [];
+        // Strip internal, non-Algolia request options before calling API
+        if (is_array($requestOptions) && array_key_exists('_indices', $requestOptions)) {
+            unset($requestOptions['_indices']);
+        }
         foreach ($data as $indexName => $objects) {
             $result[$indexName] = $this->client
                 ->initIndex($indexName)
@@ -132,6 +140,11 @@ final class Engine
     {
         $index = $this->client->initIndex($indexName);
 
+        // Strip internal, non-Algolia request options before calling API
+        if (is_array($requestOptions) && array_key_exists('_indices', $requestOptions)) {
+            unset($requestOptions['_indices']);
+        }
+
         if ($index->exists($requestOptions)) {
             return $index->clearObjects($requestOptions);
         }
@@ -156,6 +169,11 @@ final class Engine
     public function delete($indexName, $requestOptions)
     {
         $index = $this->client->initIndex($indexName);
+
+        // Strip internal, non-Algolia request options before calling API
+        if (is_array($requestOptions) && array_key_exists('_indices', $requestOptions)) {
+            unset($requestOptions['_indices']);
+        }
 
         if ($index->exists($requestOptions)) {
             return $index->delete($requestOptions);

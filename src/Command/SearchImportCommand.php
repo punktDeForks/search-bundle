@@ -101,7 +101,14 @@ EOT
                         $config['batchSize'] * $page
                     );
 
-                    $response       = $indexingService->index($manager, $entities);
+                    // Build selected indices filter (unprefixed keys) from --indices option
+                    $indicesOption = (string) $input->getOption('indices');
+                    $selectedIndexKeys = [];
+                    if (!empty($indicesOption)) {
+                        $selectedIndexKeys = array_filter(array_map('trim', explode(',', $indicesOption)));
+                    }
+
+                    $response       = $indexingService->index($manager, $entities, ['_indices' => $selectedIndexKeys]);
                     $allResponses[] = $response;
                     $responses      = $this->formatIndexingResponse($response);
 
