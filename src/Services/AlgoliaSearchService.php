@@ -402,12 +402,23 @@ final class AlgoliaSearchService implements SearchService
             foreach ($chunk as $entity) {
                 $entityClassName = ClassInfo::getClass($entity);
 
+                // Determine index config for this entity
+                $indexKey = $this->classToIndexMapping[$entityClassName];
+                $indexConfig = $this->configuration['indices'][$indexKey] ?? [];
+
+                $additionalContext = isset($indexConfig['additional_context']) && is_array($indexConfig['additional_context'])
+                    ? $indexConfig['additional_context']
+                    : [];
+
                 $searchableEntitiesChunk[] = new SearchableEntity(
                     $this->searchableAs($entityClassName),
                     $entity,
                     $objectManager->getClassMetadata($entityClassName),
                     $this->normalizer,
-                    ['useSerializerGroup' => $this->canUseSerializerGroup($entityClassName)]
+                    [
+                        'useSerializerGroup' => $this->canUseSerializerGroup($entityClassName),
+                        'additional_context' => $additionalContext,
+                    ]
                 );
             }
 
