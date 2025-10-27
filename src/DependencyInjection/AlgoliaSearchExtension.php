@@ -51,8 +51,15 @@ final class AlgoliaSearchExtension extends Extension
 
         $config['settingsDirectory'] = $rootDir . $config['settingsDirectory'];
 
+        // Wire the SearchIndexerSubscriber correctly:
+        // - Do NOT inject doctrine events as a constructor argument (it would clobber the $logger)
+        // - Inject the default messenger bus and the dedicated logger explicitly
         if (count($doctrineSubscribedEvents = $config['doctrineSubscribedEvents']) > 0) {
-            $container->getDefinition('search.search_indexer_subscriber')->setArgument(1, $doctrineSubscribedEvents);
+            $definition = $container->getDefinition('search.search_indexer_subscriber');
+            // constructor: (MessageBusInterface $bus, LoggerInterface $logger)
+            $definition->setArgument(0, new Reference('messenger.default_bus'));
+            $definition->setArgument(1, new Reference('monolog.logger.search_index'));
+            // Keep event registration via tags from services.xml; no constructor args for events here.
         } else {
             $container->removeDefinition('search.search_indexer_subscriber');
         }

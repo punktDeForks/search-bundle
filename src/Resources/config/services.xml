@@ -8,22 +8,20 @@
 
         <prototype namespace="Algolia\SearchBundle\Command\" resource="../../Command" autowire="true" autoconfigure="true" />
 
+        <!-- Register async message handlers -->
+        <prototype namespace="Algolia\SearchBundle\MessageHandler\" resource="../../MessageHandler" autowire="true" autoconfigure="true" />
+
         <service id="Algolia\SearchBundle\Command\SearchImportCommand" autowire="true" autoconfigure="true">
             <argument key="$searchServiceForAtomicReindex" type="service" id="search.service_for_atomic_reindex" />
         </service>
 
-        <service id="search.search_indexer_subscriber" class="Algolia\SearchBundle\EventListener\SearchIndexerSubscriber" public="true">
-            <argument type="service" id="search.service" />
-            <argument type="collection" /> <!-- doctrine subscribed events -->
-            <tag name="doctrine.event_listener"
-                 event="postPersist"
-                 connection="default"/>
-            <tag name="doctrine.event_listener"
-                 event="postUpdate"
-                 connection="default"/>
-            <tag name="doctrine.event_listener"
-                 event="preRemove"
-                 connection="default"/>
+        <!-- Explicitly inject the default messenger bus and the channelized logger -->
+        <service id="search.search_indexer_subscriber" class="Algolia\SearchBundle\EventListener\SearchIndexerSubscriber" public="true" autowire="false" autoconfigure="false">
+            <argument type="service" id="messenger.default_bus" />
+            <argument key="$logger" type="service" id="monolog.logger.search_index" />
+            <tag name="doctrine.event_listener" event="postPersist" connection="default"/>
+            <tag name="doctrine.event_listener" event="postUpdate" connection="default"/>
+            <tag name="doctrine.event_listener" event="preRemove" connection="default"/>
             <tag name="doctrine_mongodb.odm.event_subscriber" />
         </service>
 
