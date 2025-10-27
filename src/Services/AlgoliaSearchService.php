@@ -188,8 +188,19 @@ final class AlgoliaSearchService implements SearchService
     {
         $this->assertIsSearchable($className);
 
+        // Allow scoping to selected indices via '_indices' (unprefixed keys), similar to indexing flow
+        $allowed = [];
+        if (is_array($requestOptions) && isset($requestOptions['_indices']) && is_array($requestOptions['_indices'])) {
+            $allowed = array_values(array_filter(array_map('strval', $requestOptions['_indices'])));
+        }
+
         $results = [];
-        foreach ($this->classToIndicesMapping[$className] ?? [] as $indexKey) {
+        $indexKeys = $this->classToIndicesMapping[$className] ?? [];
+        if (!empty($allowed)) {
+            $indexKeys = array_values(array_intersect($indexKeys, $allowed));
+        }
+
+        foreach ($indexKeys as $indexKey) {
             $results[] = $this->engine->clear($this->configuration['prefix'] . $indexKey, $requestOptions);
         }
         return new SearchServiceResponse($results);
@@ -205,8 +216,19 @@ final class AlgoliaSearchService implements SearchService
     {
         $this->assertIsSearchable($className);
 
+        // Allow scoping to selected indices via '_indices' (unprefixed keys)
+        $allowed = [];
+        if (is_array($requestOptions) && isset($requestOptions['_indices']) && is_array($requestOptions['_indices'])) {
+            $allowed = array_values(array_filter(array_map('strval', $requestOptions['_indices'])));
+        }
+
         $results = [];
-        foreach ($this->classToIndicesMapping[$className] ?? [] as $indexKey) {
+        $indexKeys = $this->classToIndicesMapping[$className] ?? [];
+        if (!empty($allowed)) {
+            $indexKeys = array_values(array_intersect($indexKeys, $allowed));
+        }
+
+        foreach ($indexKeys as $indexKey) {
             $results[] = $this->engine->delete($this->configuration['prefix'] . $indexKey, $requestOptions);
         }
         return new SearchServiceResponse($results);

@@ -3,6 +3,7 @@
 namespace Algolia\SearchBundle\Command;
 
 use Algolia\AlgoliaSearch\Response\IndexingResponse;
+use Algolia\SearchBundle\Responses\SearchServiceResponse;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -32,15 +33,53 @@ final class SearchClearCommand extends IndexCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $indexToClear = $this->getEntitiesFromArgs($input, $output);
+        $entitiesToClear = $this->getEntitiesFromArgs($input, $output);
 
-        foreach ($indexToClear as $indexName => $className) {
-            $success = $this->searchService->clear($className);
+        // Build selected indices filter (unprefixed keys) from --indices option
+        $indicesOption = (string) $input->getOption('indices');
+        $selectedIndexKeys = [];
+        if (!empty($indicesOption)) {
+            $selectedIndexKeys = array_filter(array_map('trim', explode(',', $indicesOption)));
+        }
 
-            if ($success instanceof IndexingResponse) {
-                $output->writeln('Cleared <info>' . $indexName . '</info> index of <comment>' . $className . '</comment> ');
-            } else {
-                $output->writeln('<error>Index <info>' . $indexName . '</info>  couldn\'t be cleared</error>');
+        $config = $this->searchService->getConfiguration();
+
+        foreach ($entitiesToClear as $entityClassName) {
+            // Determine indices mapped to this class
+            $classIndexKeys = [];
+            foreach ($config['indices'] as $indexKey => $indexDetails) {
+                if (($indexDetails['class'] ?? null) === $entityClassName) {
+                    $classIndexKeys[] = $indexKey;
+                }
+            }
+
+            // If indices were specified, intersect them with class indices
+            $targetIndexKeys = !empty($selectedIndexKeys)
+                ? array_values(array_intersect($classIndexKeys, $selectedIndexKeys))
+                : $classIndexKeys;
+
+            // Execute clear scoped to desired indices
+            /** @var SearchServiceResponse $response */
+            $response = $this->searchService->clear($entityClassName, ['_indices' => $targetIndexKeys]);
+
+            $body = $response->getBody();
+            if (empty($body)) {
+                $output->writeln('<error>No indices could be cleared for <comment>' . $entityClassName . '</comment></error>');
+                continue;
+            }
+
+            // Print per targeted index name (prefixed)
+            $prefix = (string) ($config['prefix'] ?? '');
+            foreach ($targetIndexKeys as $idx) {
+                $output->writeln('Cleared <info>' . $prefix . $idx . '</info> index of <comment>' . $entityClassName . '</comment> ');
+            }
+
+            // Also report non-indexing responses as errors if present
+            foreach ($body as $indexResponse) {
+                if (!($indexResponse instanceof IndexingResponse)) {
+                    $output->writeln('<error>Some indices couldn\'t be cleared for <comment>' . $entityClassName . '</comment></error>');
+                    break;
+                }
             }
         }
 
