@@ -275,15 +275,33 @@ final class AlgoliaSearchService implements SearchService
      * @param string                                              $className
      * @param string                                              $query
      * @param array<string, bool|int|string|array>|RequestOptions $requestOptions
+     * @param string|null                                         $indexName
      *
      * @return array<string, int|string|bool|array>
      *
      * @throws \Algolia\AlgoliaSearch\Exceptions\AlgoliaException
      */
-    public function rawSearch($className, $query = '', $requestOptions = [])
+    public function rawSearch($className, $query = '', $requestOptions = [], $indexName = null)
     {
         $this->assertIsSearchable($className);
 
+        // If indexName is provided, use it directly with prefix
+        if ($indexName !== null) {
+            // Validate that the indexName exists for this class
+            $availableIndices = $this->classToIndicesMapping[$className] ?? [];
+            if (!in_array($indexName, $availableIndices, true)) {
+                throw new \InvalidArgumentException(
+                    sprintf('Index "%s" is not available for class "%s". Available indices: %s',
+                        $indexName,
+                        $className,
+                        implode(', ', $availableIndices)
+                    )
+                );
+            }
+            return $this->engine->search($query, $this->configuration['prefix'] . $indexName, $requestOptions);
+        }
+
+        // Default behavior: use first available index
         return $this->engine->search($query, $this->searchableAs($className), $requestOptions);
     }
 
