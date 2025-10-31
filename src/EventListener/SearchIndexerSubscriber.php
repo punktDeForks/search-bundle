@@ -82,22 +82,11 @@ class SearchIndexerSubscriber
         $class = get_class($entity);
         $ids   = $objectManager->getClassMetadata($class)->getIdentifierValues($entity);
 
-        // Log received event
-        $this->logger->info('Received entity for search indexing.', [
-            'operation' => $operation,
-            'class' => $class,
-            'identifierValues' => $ids,
-        ]);
-
+        // Resolve to product variants according to mapping
         // Resolve to product variants according to mapping
         $targets = $this->mapToVariantIdentifiers($objectManager, $class, $ids, $operation);
 
         if (empty($targets)) {
-            // If not supported, do nothing but log
-            $this->logger->info('Entity class not supported by mapping, skipping.', [
-                'class' => $class,
-                'identifierValues' => $ids,
-            ]);
             return;
         }
 

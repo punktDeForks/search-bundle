@@ -22,6 +22,7 @@ final class IndexEntityMessageHandler
 
     public function __invoke(IndexEntityMessage $message): void
     {
+        $this->logger->info('Received message', ['class' => $message->className,'ids'=>$message->identifiers,'operation'=>$message->operation]);
         $class   = $message->className;
         $ids     = $message->identifiers;
 
@@ -43,8 +44,8 @@ final class IndexEntityMessageHandler
         }
 
         if ($message->operation === 'remove') {
-            $this->logger->info('Removing entity', ['entity' => $entity]);
-            $this->searchService->remove($em, $entity);
+            #$this->logger->info('Removing entity', ['entity' => $entity]);
+            #$this->searchService->remove($em, $entity);
             return;
         }
     }
