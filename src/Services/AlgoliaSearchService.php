@@ -49,6 +49,10 @@ final class AlgoliaSearchService implements SearchService
      * @var array<string, string>
      */
     private $classToIndexMapping;
+    /**
+     * @var array<string, array>
+     */
+    private $classToIndicesMapping;
 
     /**
      * @var array<string, bool>
@@ -116,7 +120,10 @@ final class AlgoliaSearchService implements SearchService
      */
     public function searchableAs($className)
     {
-        return $this->configuration['prefix'] . $this->classToIndexMapping[$className];
+        // Kept for BC: return first index when a single index is expected
+        $indices = $this->classToIndicesMapping[$className] ?? [];
+        $first = reset($indices);
+        return $this->configuration['prefix'] . $first;
     }
 
     /**
@@ -148,7 +155,7 @@ final class AlgoliaSearchService implements SearchService
 
         return $this->makeSearchServiceResponseFrom($objectManager, $searchablesToBeIndexed, function ($chunk) use ($requestOptions) {
             return $this->engine->index($chunk, $requestOptions);
-        });
+        }, $requestOptions);
     }
 
     /**
@@ -168,7 +175,7 @@ final class AlgoliaSearchService implements SearchService
 
         return $this->makeSearchServiceResponseFrom($objectManager, $searchables, function ($chunk) use ($requestOptions) {
             return $this->engine->remove($chunk, $requestOptions);
-        });
+        }, $requestOptions);
     }
 
     /**
@@ -181,7 +188,22 @@ final class AlgoliaSearchService implements SearchService
     {
         $this->assertIsSearchable($className);
 
-        return $this->engine->clear($this->searchableAs($className), $requestOptions);
+        // Allow scoping to selected indices via '_indices' (unprefixed keys), similar to indexing flow
+        $allowed = [];
+        if (is_array($requestOptions) && isset($requestOptions['_indices']) && is_array($requestOptions['_indices'])) {
+            $allowed = array_values(array_filter(array_map('strval', $requestOptions['_indices'])));
+        }
+
+        $results = [];
+        $indexKeys = $this->classToIndicesMapping[$className] ?? [];
+        if (!empty($allowed)) {
+            $indexKeys = array_values(array_intersect($indexKeys, $allowed));
+        }
+
+        foreach ($indexKeys as $indexKey) {
+            $results[] = $this->engine->clear($this->configuration['prefix'] . $indexKey, $requestOptions);
+        }
+        return new SearchServiceResponse($results);
     }
 
     /**
@@ -194,7 +216,22 @@ final class AlgoliaSearchService implements SearchService
     {
         $this->assertIsSearchable($className);
 
-        return $this->engine->delete($this->searchableAs($className), $requestOptions);
+        // Allow scoping to selected indices via '_indices' (unprefixed keys)
+        $allowed = [];
+        if (is_array($requestOptions) && isset($requestOptions['_indices']) && is_array($requestOptions['_indices'])) {
+            $allowed = array_values(array_filter(array_map('strval', $requestOptions['_indices'])));
+        }
+
+        $results = [];
+        $indexKeys = $this->classToIndicesMapping[$className] ?? [];
+        if (!empty($allowed)) {
+            $indexKeys = array_values(array_intersect($indexKeys, $allowed));
+        }
+
+        foreach ($indexKeys as $indexKey) {
+            $results[] = $this->engine->delete($this->configuration['prefix'] . $indexKey, $requestOptions);
+        }
+        return new SearchServiceResponse($results);
     }
 
     /**
@@ -238,15 +275,33 @@ final class AlgoliaSearchService implements SearchService
      * @param string                                              $className
      * @param string                                              $query
      * @param array<string, bool|int|string|array>|RequestOptions $requestOptions
+     * @param string|null                                         $indexName
      *
      * @return array<string, int|string|bool|array>
      *
      * @throws \Algolia\AlgoliaSearch\Exceptions\AlgoliaException
      */
-    public function rawSearch($className, $query = '', $requestOptions = [])
+    public function rawSearch($className, $query = '', $requestOptions = [], $indexName = null)
     {
         $this->assertIsSearchable($className);
 
+        // If indexName is provided, use it directly with prefix
+        if ($indexName !== null) {
+            // Validate that the indexName exists for this class
+            $availableIndices = $this->classToIndicesMapping[$className] ?? [];
+            if (!in_array($indexName, $availableIndices, true)) {
+                throw new \InvalidArgumentException(
+                    sprintf('Index "%s" is not available for class "%s". Available indices: %s',
+                        $indexName,
+                        $className,
+                        implode(', ', $availableIndices)
+                    )
+                );
+            }
+            return $this->engine->search($query, $this->configuration['prefix'] . $indexName, $requestOptions);
+        }
+
+        // Default behavior: use first available index
         return $this->engine->search($query, $this->searchableAs($className), $requestOptions);
     }
 
@@ -302,12 +357,19 @@ final class AlgoliaSearchService implements SearchService
      */
     private function setClassToIndexMapping()
     {
-        $mapping = [];
+        $singleMapping = [];
+        $multiMapping = [];
         foreach ($this->configuration['indices'] as $indexName => $indexDetails) {
-            $mapping[$indexDetails['class']] = $indexName;
+            $class = $indexDetails['class'];
+            $singleMapping[$class] = $indexName; // last wins (legacy behavior)
+            if (!isset($multiMapping[$class])) {
+                $multiMapping[$class] = [];
+            }
+            $multiMapping[$class][] = $indexName;
         }
 
-        $this->classToIndexMapping = $mapping;
+        $this->classToIndexMapping = $singleMapping;
+        $this->classToIndicesMapping = $multiMapping;
     }
 
     /**
@@ -394,24 +456,47 @@ final class AlgoliaSearchService implements SearchService
      *
      * @return \Algolia\AlgoliaSearch\Response\AbstractResponse
      */
-    private function makeSearchServiceResponseFrom(ObjectManager $objectManager, array $entities, $operation)
+    private function makeSearchServiceResponseFrom(ObjectManager $objectManager, array $entities, $operation, $requestOptions = [])
     {
         $batch = [];
+        $allowedIndices = [];
+        if (is_array($requestOptions) && isset($requestOptions['_indices']) && is_array($requestOptions['_indices'])) {
+            // Only allow non-empty string keys
+            $allowedIndices = array_values(array_filter(array_map('strval', $requestOptions['_indices'])));
+        }
+
         foreach (array_chunk($entities, $this->configuration['batchSize']) as $chunk) {
             $searchableEntitiesChunk = [];
             foreach ($chunk as $entity) {
                 $entityClassName = ClassInfo::getClass($entity);
 
-                $searchableEntitiesChunk[] = new SearchableEntity(
-                    $this->searchableAs($entityClassName),
-                    $entity,
-                    $objectManager->getClassMetadata($entityClassName),
-                    $this->normalizer,
-                    ['useSerializerGroup' => $this->canUseSerializerGroup($entityClassName)]
-                );
+                // Iterate over all indices configured for this class, possibly filtered by allowed indices
+                $indexKeys = $this->classToIndicesMapping[$entityClassName] ?? [];
+                if (!empty($allowedIndices)) {
+                    $indexKeys = array_values(array_intersect($indexKeys, $allowedIndices));
+                }
+                foreach ($indexKeys as $indexKey) {
+                    $indexConfig = $this->configuration['indices'][$indexKey] ?? [];
+                    $additionalContext = isset($indexConfig['additional_context']) && is_array($indexConfig['additional_context'])
+                        ? $indexConfig['additional_context']
+                        : [];
+
+                    $searchableEntitiesChunk[] = new SearchableEntity(
+                        $this->configuration['prefix'] . $indexKey,
+                        $entity,
+                        $objectManager->getClassMetadata($entityClassName),
+                        $this->normalizer,
+                        [
+                            'useSerializerGroup' => $this->canUseSerializerGroup($entityClassName),
+                            'additional_context' => $additionalContext,
+                        ]
+                    );
+                }
             }
 
-            $batch[] = $operation($searchableEntitiesChunk);
+            if (!empty($searchableEntitiesChunk)) {
+                $batch[] = $operation($searchableEntitiesChunk);
+            }
         }
 
         return new SearchServiceResponse($batch);

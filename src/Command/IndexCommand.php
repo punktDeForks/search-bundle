@@ -51,6 +51,9 @@ abstract class IndexCommand extends Command
             }
         }
 
-        return $entities;
+        // Deduplicate classes: keep only unique class names regardless of how many indices reference them
+        $uniqueEntities = array_values(array_unique(array_values($entities)));
+
+        return $uniqueEntities;
     }
 }

@@ -43,6 +43,11 @@ final class SearchableEntity
     private $normalizer;
 
     /**
+     * @var array<string, mixed>
+     */
+    private $additionalContext = [];
+
+    /**
      * @param string                               $indexName
      * @param object                               $entity
      * @param ClassMetadata                        $entityMetadata
@@ -56,6 +61,10 @@ final class SearchableEntity
         $this->entityMetadata      = $entityMetadata;
         $this->normalizer          = $normalizer;
         $this->useSerializerGroups = isset($extra['useSerializerGroup']) && $extra['useSerializerGroup'];
+
+        if (isset($extra['additional_context']) && is_array($extra['additional_context'])) {
+            $this->additionalContext = $extra['additional_context'];
+        }
 
         $this->setId();
     }
@@ -81,6 +90,13 @@ final class SearchableEntity
 
         if ($this->useSerializerGroups) {
             $context['groups'] = [Searchable::NORMALIZATION_GROUP];
+        }
+
+        // Merge per-index additional context so normalizers can access them directly
+        if (!empty($this->additionalContext)) {
+            foreach ($this->additionalContext as $k => $v) {
+                $context[$k] = $v;
+            }
         }
 
         if ($this->normalizer instanceof NormalizerInterface) {
